@@ -1,0 +1,25 @@
+[ {
+  "name" : "NodeA",
+  "startAddress" : 0,
+  "endAddress" : 499,
+  "replicaNodes" : [ "NodeB" ],
+  "primary" : true
+}, {
+  "name" : "NodeB",
+  "startAddress" : 0,
+  "endAddress" : 499,
+  "replicaNodes" : [ "NodeA" ],
+  "primary" : false
+}, {
+  "name" : "NodeC",
+  "startAddress" : 500,
+  "endAddress" : 999,
+  "replicaNodes" : [ "NodeD" ],
+  "primary" : true
+}, {
+  "name" : "NodeD",
+  "startAddress" : 500,
+  "endAddress" : 999,
+  "replicaNodes" : [ "NodeC" ],
+  "primary" : false
+} ]
