@@ -15,13 +15,7 @@
             <goals>
               <goal>shade</goal>
             </goals>
-            <configuration>
-              <transformers>
-                <transformer>
-                  <mainClass>NodeMain</mainClass>
-                </transformer>
-              </transformers>
-            </configuration>
+            <configuration />
           </execution>
         </executions>
       </plugin>

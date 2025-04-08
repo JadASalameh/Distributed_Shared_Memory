@@ -1,0 +1,15 @@
+#!/bin/bash
+# sort-client-output.sh
+# Usage: ./sort-client-output.sh client_output.txt
+
+INPUT_FILE=${1:-client_output.txt}
+WRITE_FILE="writes.txt"
+READ_FILE="reads.txt"
+SORTED_FILE="sorted_output.txt"
+
+grep "Sent WRITE" "$INPUT_FILE" > "$WRITE_FILE"
+grep "Sent READ" "$INPUT_FILE" > "$READ_FILE"
+
+cat "$WRITE_FILE" "$READ_FILE" > "$SORTED_FILE"
+
+echo "✅ Sorted output saved to $SORTED_FILE"

@@ -10,8 +10,11 @@ public class DSMNode {
     private final Map<Integer, Integer> storage;
     private final boolean isPrimary;
     private final List<String> replicaNodes;
-    private final PartitionConfig partitionConfig;
-    private final MessagingService messagingService;
+
+
+    private PartitionConfig partitionConfig;
+    private MessagingService messagingService;
+
 
     @JsonCreator
     public DSMNode(
@@ -19,17 +22,16 @@ public class DSMNode {
             @JsonProperty("startAddress") int startAddress,
             @JsonProperty("endAddress") int endAddress,
             @JsonProperty("primary") boolean isPrimary,
-            @JsonProperty("replicaNodes") List<String> replicaNodes,
-            PartitionConfig config,
-            MessagingService messaging) {
+            @JsonProperty("replicaNodes") List<String> replicaNodes) {
         this.name = name;
         this.startAddress = startAddress;
         this.endAddress = endAddress;
         this.isPrimary = isPrimary;
         this.replicaNodes = replicaNodes;
         this.storage = new HashMap<>();
-        this.partitionConfig = config;
-        this.messagingService = messaging;
+        // Set these to null initially; they will be injected later.
+        this.partitionConfig = null;
+        this.messagingService = null;
         initializeStorage();
     }
 
@@ -37,6 +39,16 @@ public class DSMNode {
         for (int addr = startAddress; addr <= endAddress; addr++) {
             storage.put(addr, 0);
         }
+    }
+
+    // Setter to inject PartitionConfig after deserialization.
+    public void setPartitionConfig(PartitionConfig config) {
+        this.partitionConfig = config;
+    }
+
+    // Setter to inject MessagingService after deserialization.
+    public void setMessagingService(MessagingService messaging) {
+        this.messagingService = messaging;
     }
 
     public boolean isLocalAddress(Address address) {
@@ -47,6 +59,7 @@ public class DSMNode {
     private void handleMessage(DSMMessage msg) {
         try {
             if (!isLocalAddress(msg.getAddress())) {
+                System.out.println("[" + name + "] Forwarding " + msg.getType() + " for address " + msg.getAddress().getValue());
                 forwardMessage(msg);
                 return;
             }
@@ -64,6 +77,7 @@ public class DSMNode {
     private void handleWrite(DSMMessage msg) {
         int value = Integer.parseInt(msg.getValue());
         storage.put(msg.getAddress().getValue(), value);
+        System.out.println("[" + name + "] WROTE value " + msg.getValue() + " at address " + msg.getAddress().getValue());
 
         if (isPrimary) {
             replicaNodes.forEach(replica -> {
@@ -72,6 +86,7 @@ public class DSMNode {
                 );
                 try {
                     messagingService.send(replica, replicateMsg);
+
                 } catch (IOException e) {
                     System.err.println("Failed to replicate to " + replica + ": " + e.getMessage());
                 }
@@ -86,6 +101,7 @@ public class DSMNode {
         if (msg.getReplyToQueue() != null) {
             try {
                 messagingService.sendReply(msg.getReplyToQueue(), String.valueOf(value));
+                System.out.println("[" + name + "] READ value " + value + " from address " + msg.getAddress().getValue());
             } catch (IOException e) {
                 System.err.println("Failed to send reply: " + e.getMessage());
             }
@@ -99,16 +115,12 @@ public class DSMNode {
 
     private void forwardMessage(DSMMessage msg) {
         List<String> group = partitionConfig.getReplicationGroup(msg.getAddress());
-
         String targetNode;
         if (msg.getType() == DSMMessage.Type.READ) {
-            // Pick a random node from the group for read
             targetNode = group.get(new Random().nextInt(group.size()));
         } else {
-            // For write or replicate, always forward to primary
-            targetNode = group.getFirst();
+            targetNode = group.get(0);
         }
-
         try {
             messagingService.send(targetNode, msg);
         } catch (IOException e) {
@@ -116,6 +128,12 @@ public class DSMNode {
         }
     }
 
+    // Optional: A helper method to start listening for DSM messages.
+    // (Depends on how your MessagingService is implemented.)
+    public void start() throws IOException {
+        messagingService.startMessageListener(this.name, this::handleMessage);
+        System.out.println("DSMNode " + name + " is now listening for messages.");
+    }
 
     // Getters
     public String getName() { return name; }

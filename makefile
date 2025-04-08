@@ -1,16 +1,13 @@
-# Makefile for Distributed Shared Memory Project
+# Makefile
+.PHONY: all compile clean
 
-.PHONY: all clean run
+# Default target: build (compile) the project
+all: compile
 
-# The "all" target compiles the project using Maven
-all:
+# Compile = run Maven's 'clean package', which produces the fat JAR in target/
+compile:
 	mvn clean package
 
-# The "run" target runs the project with a given node name.
-# You can call it like: make run NODE=NodeA
-run:
-	java -cp target/Distributed_Shared_Memory-1.0-SNAPSHOT.jar NodeMain $(NODE)
-
-# The "clean" target cleans the project
+# Clean = run Maven's 'clean', removing the target/ directory
 clean:
 	mvn clean

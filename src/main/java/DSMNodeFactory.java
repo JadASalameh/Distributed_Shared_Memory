@@ -1,7 +1,7 @@
 import java.util.*;
 
 public class DSMNodeFactory {
-    public static List<DSMNode> createNodesFrom(PartitionConfig config,MessagingService messaging) {
+    public static List<DSMNode> createNodesFrom(PartitionConfig config) {
         List<DSMNode> dsmNodes = new ArrayList<>();
 
         Map<Integer, List<String>> partitionGroups = config.getPartitionGroups();
@@ -36,7 +36,7 @@ public class DSMNodeFactory {
                 replicas.remove(nodeName);
 
                 // Create the DSMNode and add them to the list of Nodes
-                DSMNode dsmNode = new DSMNode(nodeName, start, end, isPrimary, replicas,config,messaging);
+                DSMNode dsmNode = new DSMNode(nodeName, start, end, isPrimary, replicas);
                 dsmNodes.add(dsmNode);
             }
         }
