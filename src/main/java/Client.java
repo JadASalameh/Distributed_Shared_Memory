@@ -50,6 +50,7 @@ public class Client {
 
             Random random = new Random();
             ObjectMapper objectMapper = new ObjectMapper();
+            String targetNode = nodeNames.get(random.nextInt(nodeNames.size()));
 
             System.out.println("Client is processing requests from file: " + args[0]);
 
