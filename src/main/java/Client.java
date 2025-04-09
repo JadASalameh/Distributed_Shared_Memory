@@ -73,7 +73,7 @@ public class Client {
                 }
 
                 Address address = new Address(addressValue);
-                String targetNode = nodeNames.get(random.nextInt(nodeNames.size()));
+
 
                 if (operation.equals("read")) {
                     String replyQueue = "client_reply_" + UUID.randomUUID();
