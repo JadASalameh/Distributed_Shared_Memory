@@ -99,7 +99,10 @@ public class Client {
                     }
 
                     String value = tokens[2];
-                    DSMMessage msg = new DSMMessage(DSMMessage.Type.WRITE, address, value, null);
+
+                    String writeReplyQueue = "client_write_reply_" + UUID.randomUUID();
+                    channel.queueDeclare(writeReplyQueue, false, false, false, null);
+                    DSMMessage msg = new DSMMessage(DSMMessage.Type.WRITE, address, value, writeReplyQueue);
                     channel.basicPublish("", targetNode, null, objectMapper.writeValueAsBytes(msg));
                     System.out.println("Sent WRITE to " + targetNode + ": address " + addressValue + ", value " + value);
                 } else {
