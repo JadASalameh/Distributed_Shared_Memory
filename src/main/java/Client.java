@@ -9,7 +9,7 @@ import java.util.*;
 
 public class Client {
     private static final String CONFIG_REQUEST_QUEUE = "config_request_queue";
-
+    private static long lastSequenceNumber = 0;
     public static void main(String[] args) throws Exception {
         if (args.length < 1) {
             System.err.println("Usage: java Client <request_file>");
@@ -79,7 +79,7 @@ public class Client {
                 if (operation.equals("read")) {
                     String replyQueue = "client_reply_" + UUID.randomUUID();
                     channel.queueDeclare(replyQueue, false, false, false, null);
-                    DSMMessage msg = new DSMMessage(DSMMessage.Type.READ, address, null, replyQueue);
+                    DSMMessage msg = new DSMMessage(DSMMessage.Type.READ, address, null, replyQueue,lastSequenceNumber);
                     channel.basicPublish("", targetNode, null, objectMapper.writeValueAsBytes(msg));
                     System.out.println("Sent READ to " + targetNode + " at address " + addressValue);
 
@@ -102,7 +102,7 @@ public class Client {
 
                     String writeReplyQueue = "client_write_reply_" + UUID.randomUUID();
                     channel.queueDeclare(writeReplyQueue, false, false, false, null);
-                    DSMMessage msg = new DSMMessage(DSMMessage.Type.WRITE, address, value, writeReplyQueue);
+                    DSMMessage msg = new DSMMessage(DSMMessage.Type.WRITE, address, value, writeReplyQueue,lastSequenceNumber+1);
                     channel.basicPublish("", targetNode, null, objectMapper.writeValueAsBytes(msg));
                     System.out.println("Sent WRITE to " + targetNode + ": address " + addressValue + ", value " + value);
 
@@ -112,6 +112,7 @@ public class Client {
                         writeResponse = channel.basicGet(writeReplyQueue, true);
                         if (writeResponse == null) Thread.sleep(100);
                     }
+                    lastSequenceNumber++;
                     System.out.println("WRITE confirmed for address " + addressValue);
 
 

@@ -11,6 +11,8 @@ public class DSMNode {
     private final Map<Integer, Integer> storage;
     private final boolean isPrimary;
     private final List<String> replicaNodes;
+    private static final long REPLICATION_DELAY_MS = 100; // 100 milliseconds delay
+
 
 
     private PartitionConfig partitionConfig;
@@ -87,7 +89,11 @@ public class DSMNode {
         }
     }
 
+    private long latestSequenceNumber = 0; // Track the latest sequence number
+    private final Map<Long, Runnable> pendingReads = new ConcurrentHashMap<>(); // For delayed reads
+
     private void handleWrite(DSMMessage msg) {
+        long sequenceNumber = ++latestSequenceNumber;
         int value = Integer.parseInt(msg.getValue());
         storage.put(msg.getAddress().getValue(), value);
         System.out.println("[" + name + "] WROTE value " + msg.getValue() + " at address " + msg.getAddress().getValue());
@@ -99,7 +105,7 @@ public class DSMNode {
                pendingClientReplies.put(address,msg.getReplyToQueue());
            }
            replicaNodes.forEach(replica -> {
-               DSMMessage replicateMessage = new DSMMessage(DSMMessage.Type.REPLICATE,address,msg.getValue(),this.name);
+               DSMMessage replicateMessage = new DSMMessage(DSMMessage.Type.REPLICATE,address,msg.getValue(),this.name,sequenceNumber);
                try{
                    messagingService.send(replica,replicateMessage);
                }catch(IOException e){
@@ -133,25 +139,56 @@ public class DSMNode {
 
 
     private void handleRead(DSMMessage msg) {
-        Integer value = storage.get(msg.getAddress().getValue());
-        if (value == null) value = 0;
-
-        if (msg.getReplyToQueue() != null) {
-            try {
-                messagingService.sendReply(msg.getReplyToQueue(), String.valueOf(value));
-                System.out.println("[" + name + "] READ value " + value + " from address " + msg.getAddress().getValue());
-            } catch (IOException e) {
-                System.err.println("Failed to send reply: " + e.getMessage());
+        if (msg.getSequenceNumber() > latestSequenceNumber){
+            pendingReads.put(msg.getSequenceNumber(), () -> {
+                Integer value = storage.get(msg.getAddress().getValue());
+                if (msg.getReplyToQueue() != null) {
+                    try {
+                        messagingService.sendReply(msg.getReplyToQueue(), String.valueOf(value));
+                        System.out.println("[" + name + "] READ value " + value + " from address " + msg.getAddress().getValue());
+                    } catch (IOException e) {
+                        System.err.println("Failed to send reply: " + e.getMessage());
+                    }
+                }
+            });
+        }else{
+            Integer value = storage.get(msg.getAddress().getValue());
+            if (msg.getReplyToQueue() != null) {
+                try {
+                    messagingService.sendReply(msg.getReplyToQueue(), String.valueOf(value));
+                    System.out.println("[" + name + "] READ value " + value + " from address " + msg.getAddress().getValue());
+                } catch (IOException e) {
+                    System.err.println("Failed to send reply: " + e.getMessage());
+                }
             }
         }
     }
 
+    private void updateSequenceNumber(long newSequenceNumber) {
+        latestSequenceNumber = newSequenceNumber;
+        pendingReads.entrySet().removeIf(entry -> {
+            if (entry.getKey() <= latestSequenceNumber) {
+                entry.getValue().run();
+                return true;
+            }
+            return false;
+        });
+    }
+
     private void handleReplicate(DSMMessage msg) {
+        try {
+            // Introduce an artificial delay of 100 milliseconds
+            Thread.sleep(REPLICATION_DELAY_MS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
         int value = Integer.parseInt(msg.getValue());
         storage.put(msg.getAddress().getValue(), value);
+        latestSequenceNumber = Math.max(latestSequenceNumber, msg.getSequenceNumber());
+        updateSequenceNumber(latestSequenceNumber);
         // Send ACK back to primary
         DSMMessage ackMsg = new DSMMessage(
-                DSMMessage.Type.REPLICATE_ACK, msg.getAddress(), "ACK", msg.getReplyToQueue()
+                DSMMessage.Type.REPLICATE_ACK, msg.getAddress(), "ACK", msg.getReplyToQueue(),msg.getSequenceNumber()
         );
         try {
             messagingService.send(msg.getReplyToQueue(), ackMsg); // Send ACK to primary's queue
