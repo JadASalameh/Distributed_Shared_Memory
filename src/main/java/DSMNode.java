@@ -2,6 +2,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class DSMNode {
     private final String name;
@@ -15,6 +16,8 @@ public class DSMNode {
     private PartitionConfig partitionConfig;
     private MessagingService messagingService;
 
+    private final Map<Address, Integer> pendingReplications = new ConcurrentHashMap<>();
+    private final Map<Address, String> pendingClientReplies = new ConcurrentHashMap<>();
 
     @JsonCreator
     public DSMNode(
@@ -66,8 +69,18 @@ public class DSMNode {
 
             switch (msg.getType()) {
                 case WRITE -> handleWrite(msg);
-                case READ -> handleRead(msg);
+                case READ -> {
+                    // If we are the primary for this address, forward the read to a replica
+                    // If we are not the primary, actually handle it
+                    if (isPrimary && !replicaNodes.isEmpty()) {
+                        forwardMessage(msg);
+                    } else {
+                        // I'm either a replica or the only node
+                        handleRead(msg);
+                    }
+                }
                 case REPLICATE -> handleReplicate(msg);
+                case REPLICATE_ACK -> handleReplicateAck(msg);
             }
         } catch (Exception e) {
             System.err.println("Error handling message: " + e.getMessage());
@@ -80,19 +93,44 @@ public class DSMNode {
         System.out.println("[" + name + "] WROTE value " + msg.getValue() + " at address " + msg.getAddress().getValue());
 
         if (isPrimary) {
-            replicaNodes.forEach(replica -> {
-                DSMMessage replicateMsg = new DSMMessage(
-                        DSMMessage.Type.REPLICATE, msg.getAddress(), msg.getValue(), null
-                );
-                try {
-                    messagingService.send(replica, replicateMsg);
+           Address address = msg.getAddress();
+           pendingReplications.put(address, replicaNodes.size());
+           if(msg.getReplyToQueue()!=null){
+               pendingClientReplies.put(address,msg.getReplyToQueue());
+           }
+           replicaNodes.forEach(replica -> {
+               DSMMessage replicateMessage = new DSMMessage(DSMMessage.Type.REPLICATE,address,msg.getValue(),this.name);
+               try{
+                   messagingService.send(replica,replicateMessage);
+               }catch(IOException e){
+                   System.out.println("Replication failed to " + replica + ": " + e.getMessage());
 
-                } catch (IOException e) {
-                    System.err.println("Failed to replicate to " + replica + ": " + e.getMessage());
-                }
-            });
+               }
+           });
         }
     }
+
+    private void decrementPendingReplications(Address address) {
+        synchronized (pendingReplications) {
+            int remaining = pendingReplications.getOrDefault(address, 0) - 1;
+            if (remaining <= 0) {
+                pendingReplications.remove(address);
+                // Send acknowledgment to client
+                String replyQueue = pendingClientReplies.remove(address);
+                if (replyQueue != null) {
+                    try {
+                        messagingService.sendReply(replyQueue, "ACK");
+                    } catch (IOException e) {
+                        System.err.println("Failed to send ACK to client: " + e.getMessage());
+                    }
+                }
+            } else {
+                pendingReplications.put(address, remaining);
+            }
+        }
+    }
+
+
 
     private void handleRead(DSMMessage msg) {
         Integer value = storage.get(msg.getAddress().getValue());
@@ -111,13 +149,32 @@ public class DSMNode {
     private void handleReplicate(DSMMessage msg) {
         int value = Integer.parseInt(msg.getValue());
         storage.put(msg.getAddress().getValue(), value);
+        // Send ACK back to primary
+        DSMMessage ackMsg = new DSMMessage(
+                DSMMessage.Type.REPLICATE_ACK, msg.getAddress(), "ACK", msg.getReplyToQueue()
+        );
+        try {
+            messagingService.send(msg.getReplyToQueue(), ackMsg); // Send ACK to primary's queue
+        } catch (IOException e) {
+            System.err.println("Failed to send REPLICATE_ACK: " + e.getMessage());
+        }
+    }
+
+    private void handleReplicateAck(DSMMessage msg) {
+        decrementPendingReplications(msg.getAddress());
     }
 
     private void forwardMessage(DSMMessage msg) {
         List<String> group = partitionConfig.getReplicationGroup(msg.getAddress());
         String targetNode;
         if (msg.getType() == DSMMessage.Type.READ) {
-            targetNode = group.get(new Random().nextInt(group.size()));
+            if (group.size() > 1) {
+                List<String> replicas = group.subList(1, group.size());
+                targetNode = replicas.get(new Random().nextInt(replicas.size()));
+            } else {
+                // Fallback: if there's only one node, it’s effectively acting as both primary and replica
+                targetNode = group.get(0);
+            }
         } else {
             targetNode = group.get(0);
         }
@@ -128,8 +185,7 @@ public class DSMNode {
         }
     }
 
-    // Optional: A helper method to start listening for DSM messages.
-    // (Depends on how your MessagingService is implemented.)
+
     public void start() throws IOException {
         messagingService.startMessageListener(this.name, this::handleMessage);
         System.out.println("DSMNode " + name + " is now listening for messages.");

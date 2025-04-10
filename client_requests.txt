@@ -1,97 +1,17 @@
-read 100
-read 647
-read 231
-read 821
-read 794
-read 559
-read 907
-read 528
-read 928
-read 54
-read 559
-read 830
-read 917
-read 618
-read 204
-read 551
-read 275
-read 625
-read 841
-read 66
-write 48 3772
-read 31
-read 549
-read 288
-write 439 5688
-write 396 8427
-write 226 5519
-write 375 607
 read 350
-read 192
-write 49 1006
-read 603
-write 278 9258
-read 179
-write 998 1268
-write 391 5775
-read 777
-read 832
-read 717
-write 448 6825
-read 88
-write 917 6811
-read 401
-read 399
-write 208 7312
-write 576 7025
-read 39
-write 976 6048
-write 500 8100
-read 812
-write 700 290
-read 455
-write 542 4617
-write 648 3893
-read 45
-write 581 4018
-write 375 565
-read 360
-write 966 2226
-write 349 1596
-write 256 6734
-write 599 1308
-read 240
-read 731
-read 683
-write 756 5625
-read 194
-read 7
-read 28
-read 209
-read 990
-read 493
-read 894
-read 407
-write 968 857
-read 479
-write 805 904
-read 910
-write 544 8942
-write 265 4631
-write 120 3924
-read 787
-read 717
-read 27
-read 986
-read 558
-write 330 4421
-read 808
-write 294 5963
-write 146 4041
-read 110
-read 812
-read 316
-read 717
-read 302
-read 141
+read 350
+read 350
+read 350
+read 350
+read 350
+read 350
+read 350
+read 350
+read 350
+
+
+
+
+
+
 

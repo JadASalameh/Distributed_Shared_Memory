@@ -105,6 +105,17 @@ public class Client {
                     DSMMessage msg = new DSMMessage(DSMMessage.Type.WRITE, address, value, writeReplyQueue);
                     channel.basicPublish("", targetNode, null, objectMapper.writeValueAsBytes(msg));
                     System.out.println("Sent WRITE to " + targetNode + ": address " + addressValue + ", value " + value);
+
+                    // Wait for acknowledgment
+                    GetResponse writeResponse = null;
+                    while (writeResponse == null) {
+                        writeResponse = channel.basicGet(writeReplyQueue, true);
+                        if (writeResponse == null) Thread.sleep(100);
+                    }
+                    System.out.println("WRITE confirmed for address " + addressValue);
+
+
+
                 } else {
                     System.err.println("Unknown operation: " + operation);
                 }

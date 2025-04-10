@@ -2,7 +2,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 public class DSMMessage {
-    public enum Type { WRITE, READ, REPLICATE }
+    public enum Type { WRITE, READ, REPLICATE, REPLICATE_ACK}
 
     private final Type type;
     private final Address address;

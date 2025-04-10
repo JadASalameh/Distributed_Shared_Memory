@@ -52,7 +52,7 @@ public class NodeMain {
                 System.exit(1);
             }
 
-            PartitionConfig partitionConfig = new PartitionConfig(1000, 0, nodeNames);
+            PartitionConfig partitionConfig = new PartitionConfig(1000, 2, nodeNames);
 
 
 

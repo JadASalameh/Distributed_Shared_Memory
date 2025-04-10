@@ -9,8 +9,8 @@ public class ConfigServer {
     public static void main(String[] args) throws Exception {
         // 1. Create the config
         int totalAddresses = 1000;
-        int replicationFactor = 0;
-        List<String> nodeNames = List.of("NodeA", "NodeB", "NodeC", "NodeD");
+        int replicationFactor = 2;
+        List<String> nodeNames = List.of("NodeA", "NodeA1", "NodeA2", "NodeB","NodeB1","NodeB2","NodeD","NodeD1","NodeD2");
 
         PartitionConfig partitionConfig = new PartitionConfig(totalAddresses, replicationFactor, nodeNames);
         List<DSMNode> dsmNodes = DSMNodeFactory.createNodesFrom(partitionConfig);
