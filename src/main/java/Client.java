@@ -1,6 +1,9 @@
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.rabbitmq.client.*;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -9,7 +12,7 @@ import java.util.*;
 
 public class Client {
     private static final String CONFIG_REQUEST_QUEUE = "config_request_queue";
-    private static long lastSequenceNumber = 0;
+    private static final Map<Integer, Long> addressSequenceNumbers = new HashMap<>();
     public static void main(String[] args) throws Exception {
         if (args.length < 1) {
             System.err.println("Usage: java Client <request_file>");
@@ -79,18 +82,19 @@ public class Client {
                 if (operation.equals("read")) {
                     String replyQueue = "client_reply_" + UUID.randomUUID();
                     channel.queueDeclare(replyQueue, false, false, false, null);
-                    DSMMessage msg = new DSMMessage(DSMMessage.Type.READ, address, null, replyQueue,lastSequenceNumber);
+                    BlockingQueue<String> replyQueueBlocking = new ArrayBlockingQueue<>(1);
+
+                    channel.basicConsume(replyQueue, true, (consumerTag, delivery) -> {
+                        String reply = new String(delivery.getBody(), StandardCharsets.UTF_8);
+                        replyQueueBlocking.add(reply);
+                    }, consumerTag -> {});
+                    long seq = addressSequenceNumbers.getOrDefault(addressValue, 0L);
+                    DSMMessage msg = new DSMMessage(DSMMessage.Type.READ, address, null, replyQueue,seq);
                     channel.basicPublish("", targetNode, null, objectMapper.writeValueAsBytes(msg));
                     System.out.println("Sent READ to " + targetNode + " at address " + addressValue);
 
-                    GetResponse readResponse = null;
-                    while (readResponse == null) {
-                        readResponse = channel.basicGet(replyQueue, true);
-                        if (readResponse == null) Thread.sleep(100);
-                    }
-
-                    String value = new String(readResponse.getBody(), StandardCharsets.UTF_8);
-                    System.out.println("Value at address " + addressValue + ": " + value);
+                    String receivedValue = replyQueueBlocking.take();
+                    System.out.println("Value at address " + addressValue + ": " + receivedValue);
 
                 } else if (operation.equals("write")) {
                     if (tokens.length < 3) {
@@ -102,20 +106,23 @@ public class Client {
 
                     String writeReplyQueue = "client_write_reply_" + UUID.randomUUID();
                     channel.queueDeclare(writeReplyQueue, false, false, false, null);
-                    DSMMessage msg = new DSMMessage(DSMMessage.Type.WRITE, address, value, writeReplyQueue,lastSequenceNumber+1);
+
+                    BlockingQueue<String> ackQueue = new ArrayBlockingQueue<>(1);
+
+
+                    channel.basicConsume(writeReplyQueue, true, (consumerTag, delivery) -> {
+                        String ack = new String(delivery.getBody(), StandardCharsets.UTF_8);
+                        ackQueue.add(ack);
+                    }, consumerTag -> {});
+
+                    long seq = addressSequenceNumbers.getOrDefault(addressValue, 0L) + 1;
+                    DSMMessage msg = new DSMMessage(DSMMessage.Type.WRITE, address, value, writeReplyQueue, seq);
                     channel.basicPublish("", targetNode, null, objectMapper.writeValueAsBytes(msg));
                     System.out.println("Sent WRITE to " + targetNode + ": address " + addressValue + ", value " + value);
 
-                    // Wait for acknowledgment
-                    GetResponse writeResponse = null;
-                    while (writeResponse == null) {
-                        writeResponse = channel.basicGet(writeReplyQueue, true);
-                        if (writeResponse == null) Thread.sleep(100);
-                    }
-                    lastSequenceNumber++;
-                    System.out.println("WRITE confirmed for address " + addressValue);
-
-
+                    String ack = ackQueue.take();
+                    addressSequenceNumbers.put(addressValue, seq);
+                    System.out.println("WRITE confirmed for address " + addressValue + ", ack: " + ack);
 
                 } else {
                     System.err.println("Unknown operation: " + operation);

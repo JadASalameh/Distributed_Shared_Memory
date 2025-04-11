@@ -3,6 +3,9 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
+
+
 
 public class DSMNode {
     private final String name;
@@ -11,15 +14,39 @@ public class DSMNode {
     private final Map<Integer, Integer> storage;
     private final boolean isPrimary;
     private final List<String> replicaNodes;
-    private static final long REPLICATION_DELAY_MS = 100; // 100 milliseconds delay
+    private static final long REPLICATION_DELAY_MS = 0; // 100 milliseconds delay
 
 
 
     private PartitionConfig partitionConfig;
     private MessagingService messagingService;
 
-    private final Map<Address, Integer> pendingReplications = new ConcurrentHashMap<>();
-    private final Map<Address, String> pendingClientReplies = new ConcurrentHashMap<>();
+    // Add this nested class inside DSMNode.java
+    private static class WriteKey {
+        private final Address address;
+        private final long sequenceNumber;
+
+        public WriteKey(Address address, long sequenceNumber) {
+            this.address = address;
+            this.sequenceNumber = sequenceNumber;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            WriteKey writeKey = (WriteKey) o;
+            return sequenceNumber == writeKey.sequenceNumber && address.equals(writeKey.address);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(address, sequenceNumber);
+        }
+    }
+
+    private final Map<WriteKey, Integer> pendingReplications = new ConcurrentHashMap<>();
+    private final Map<WriteKey, String> pendingClientReplies = new ConcurrentHashMap<>();
 
     @JsonCreator
     public DSMNode(
@@ -70,17 +97,16 @@ public class DSMNode {
             }
 
             switch (msg.getType()) {
-                case WRITE -> handleWrite(msg);
-                case READ -> {
-                    // If we are the primary for this address, forward the read to a replica
-                    // If we are not the primary, actually handle it
-                    if (isPrimary && !replicaNodes.isEmpty()) {
-                        forwardMessage(msg);
+                case WRITE -> {
+                    if (isPrimary) {
+                        handleWrite(msg);
                     } else {
-                        // I'm either a replica or the only node
-                        handleRead(msg);
+                        forwardMessage(msg); // Forward to primary if not primary
                     }
                 }
+                case READ -> handleRead(msg);
+
+
                 case REPLICATE -> handleReplicate(msg);
                 case REPLICATE_ACK -> handleReplicateAck(msg);
             }
@@ -89,40 +115,48 @@ public class DSMNode {
         }
     }
 
-    private long latestSequenceNumber = 0; // Track the latest sequence number
+    private final AtomicLong latestSequenceNumber = new AtomicLong(0); // Track the latest sequence number
     private final Map<Long, Runnable> pendingReads = new ConcurrentHashMap<>(); // For delayed reads
 
+    // In DSMNode.java, modify handleWrite():
     private void handleWrite(DSMMessage msg) {
-        long sequenceNumber = ++latestSequenceNumber;
+        long sequenceNumber = latestSequenceNumber.incrementAndGet();
         int value = Integer.parseInt(msg.getValue());
         storage.put(msg.getAddress().getValue(), value);
         System.out.println("[" + name + "] WROTE value " + msg.getValue() + " at address " + msg.getAddress().getValue());
 
         if (isPrimary) {
-           Address address = msg.getAddress();
-           pendingReplications.put(address, replicaNodes.size());
-           if(msg.getReplyToQueue()!=null){
-               pendingClientReplies.put(address,msg.getReplyToQueue());
-           }
-           replicaNodes.forEach(replica -> {
-               DSMMessage replicateMessage = new DSMMessage(DSMMessage.Type.REPLICATE,address,msg.getValue(),this.name,sequenceNumber);
-               try{
-                   messagingService.send(replica,replicateMessage);
-               }catch(IOException e){
-                   System.out.println("Replication failed to " + replica + ": " + e.getMessage());
+            Address address = msg.getAddress();
+            WriteKey key = new WriteKey(address, sequenceNumber); // Unique key for this write
+            pendingReplications.put(key, replicaNodes.size()); // Track replicas for THIS write
 
-               }
-           });
+            if (msg.getReplyToQueue() != null) {
+                pendingClientReplies.put(key, msg.getReplyToQueue()); // Track reply queue for THIS write
+            }
+
+            replicaNodes.forEach(replica -> {
+                System.out.println("[" + name + "] Sending REPLICATE for seq=" + sequenceNumber + " to " + replica);
+                DSMMessage replicateMessage = new DSMMessage(
+                        DSMMessage.Type.REPLICATE, address, msg.getValue(), this.name, sequenceNumber
+                );
+                try {
+                    messagingService.send(replica, replicateMessage);
+                } catch (IOException e) {
+                    System.out.println("Replication failed to " + replica + ": " + e.getMessage());
+                }
+            });
         }
     }
 
-    private void decrementPendingReplications(Address address) {
+    // In DSMNode.java, modify decrementPendingReplications():
+    private void decrementPendingReplications(Address address, long sequenceNumber) {
+        WriteKey key = new WriteKey(address, sequenceNumber);
         synchronized (pendingReplications) {
-            int remaining = pendingReplications.getOrDefault(address, 0) - 1;
+            int remaining = pendingReplications.getOrDefault(key, 0) - 1;
             if (remaining <= 0) {
-                pendingReplications.remove(address);
+                pendingReplications.remove(key);
                 // Send acknowledgment to client
-                String replyQueue = pendingClientReplies.remove(address);
+                String replyQueue = pendingClientReplies.remove(key); // Use WriteKey to get the correct reply
                 if (replyQueue != null) {
                     try {
                         messagingService.sendReply(replyQueue, "ACK");
@@ -131,15 +165,21 @@ public class DSMNode {
                     }
                 }
             } else {
-                pendingReplications.put(address, remaining);
+                pendingReplications.put(key, remaining);
             }
         }
+    }
+
+    // Update handleReplicateAck() to pass the sequence number:
+    private void handleReplicateAck(DSMMessage msg) {
+        decrementPendingReplications(msg.getAddress(), msg.getSequenceNumber());
     }
 
 
 
     private void handleRead(DSMMessage msg) {
-        if (msg.getSequenceNumber() > latestSequenceNumber){
+        if (msg.getSequenceNumber() > latestSequenceNumber.get()){
+            System.out.println("[" + name + "] Queuing READ for seq=" + msg.getSequenceNumber());
             pendingReads.put(msg.getSequenceNumber(), () -> {
                 Integer value = storage.get(msg.getAddress().getValue());
                 if (msg.getReplyToQueue() != null) {
@@ -165,9 +205,11 @@ public class DSMNode {
     }
 
     private void updateSequenceNumber(long newSequenceNumber) {
-        latestSequenceNumber = newSequenceNumber;
+        System.out.println("[" + name + "] Updating sequence number to: " + newSequenceNumber);
+        latestSequenceNumber.set(newSequenceNumber);
         pendingReads.entrySet().removeIf(entry -> {
-            if (entry.getKey() <= latestSequenceNumber) {
+            if (entry.getKey() <= latestSequenceNumber.get()) {
+                System.out.println("[" + name + "] Processing pending READ for seq=" + entry.getKey());
                 entry.getValue().run();
                 return true;
             }
@@ -176,29 +218,29 @@ public class DSMNode {
     }
 
     private void handleReplicate(DSMMessage msg) {
-        try {
-            // Introduce an artificial delay of 100 milliseconds
-            Thread.sleep(REPLICATION_DELAY_MS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        System.out.println("[" + name + "] Processing REPLICATE for seq=" + msg.getSequenceNumber());
         int value = Integer.parseInt(msg.getValue());
         storage.put(msg.getAddress().getValue(), value);
-        latestSequenceNumber = Math.max(latestSequenceNumber, msg.getSequenceNumber());
-        updateSequenceNumber(latestSequenceNumber);
+        // Update sequence number first
+        latestSequenceNumber.updateAndGet(current ->
+                Math.max(current, msg.getSequenceNumber())
+        );
+        // Process pending reads with the new sequence number
+        updateSequenceNumber(latestSequenceNumber.get());
+
         // Send ACK back to primary
         DSMMessage ackMsg = new DSMMessage(
-                DSMMessage.Type.REPLICATE_ACK, msg.getAddress(), "ACK", msg.getReplyToQueue(),msg.getSequenceNumber()
+                DSMMessage.Type.REPLICATE_ACK,
+                msg.getAddress(),
+                "ACK",
+                msg.getReplyToQueue(),
+                msg.getSequenceNumber()
         );
         try {
-            messagingService.send(msg.getReplyToQueue(), ackMsg); // Send ACK to primary's queue
+            messagingService.send(msg.getReplyToQueue(), ackMsg);
         } catch (IOException e) {
             System.err.println("Failed to send REPLICATE_ACK: " + e.getMessage());
         }
-    }
-
-    private void handleReplicateAck(DSMMessage msg) {
-        decrementPendingReplications(msg.getAddress());
     }
 
     private void forwardMessage(DSMMessage msg) {
@@ -210,8 +252,9 @@ public class DSMNode {
                 targetNode = replicas.get(new Random().nextInt(replicas.size()));
             } else {
                 // Fallback: if there's only one node, it’s effectively acting as both primary and replica
-                targetNode = group.get(0);
+                targetNode = group.get(1);
             }
+//            targetNode = group.get(1);
         } else {
             targetNode = group.get(0);
         }

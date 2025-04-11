@@ -1,6 +1,7 @@
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rabbitmq.client.*;
-
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 
 public class ConfigServer {
@@ -10,13 +11,19 @@ public class ConfigServer {
         // 1. Create the config
         int totalAddresses = 1000;
         int replicationFactor = 2;
-        List<String> nodeNames = List.of("NodeA", "NodeA1", "NodeA2", "NodeB","NodeB1","NodeB2","NodeD","NodeD1","NodeD2");
+        List<String> nodeNames = List.of("NodeA", "NodeA1", "NodeA2",
+                "NodeB", "NodeB1", "NodeB2");
 
         PartitionConfig partitionConfig = new PartitionConfig(totalAddresses, replicationFactor, nodeNames);
         List<DSMNode> dsmNodes = DSMNodeFactory.createNodesFrom(partitionConfig);
 
         ObjectMapper mapper = new ObjectMapper();
         byte[] configData = mapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(dsmNodes);
+
+        // -- Write the config data to disk for debugging --
+        Path debugFile = Path.of("config_debug.json");
+        Files.write(debugFile, configData);
+        System.out.println("Debug: wrote JSON config to " + debugFile.toAbsolutePath());
 
         // 2. Set up RabbitMQ
         ConnectionFactory factory = new ConnectionFactory();
@@ -39,8 +46,11 @@ public class ConfigServer {
             };
 
             channel.basicConsume(REQUEST_QUEUE, true, callback, consumerTag -> {});
-            while (true) Thread.sleep(1000); // keep alive
+            while (true) {
+                Thread.sleep(1000); // keep the server alive
+            }
         }
     }
 }
+
 

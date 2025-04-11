@@ -1,13 +1,117 @@
+write 0 123
+write 999 456
+write 500 789
+write 200 321
+read 0
+read 999
+write 700 42
+write 250 77
+write 123 88
+write 123 99
+read 123
+write 456 100
+write 456 101
+read 456
+write 350 3
+write 350 4
+write 350 5
 read 350
-read 350
-read 350
-read 350
-read 350
-read 350
-read 350
-read 350
-read 350
-read 350
+write 759 9
+read 759
+write 759 10
+read 759
+write 5 1
+write 5 2
+read 5
+write 333 7
+read 333
+write 999 500
+read 999
+write 0 111
+read 0
+write 600 60
+read 600
+write 610 61
+read 610
+write 620 62
+read 620
+write 630 63
+read 630
+write 640 64
+read 640
+write 650 65
+read 650
+write 660 66
+read 660
+write 670 67
+read 670
+write 680 68
+read 680
+write 690 69
+read 690
+write 700 70
+read 700
+write 710 71
+read 710
+write 720 72
+read 720
+write 730 73
+read 730
+write 740 74
+read 740
+write 750 75
+read 750
+write 760 76
+read 760
+write 770 77
+read 770
+write 780 78
+read 780
+write 790 79
+read 790
+write 800 80
+read 800
+write 810 81
+read 810
+write 820 82
+read 820
+write 830 83
+read 830
+write 840 84
+read 840
+write 850 85
+read 850
+write 860 86
+read 860
+write 870 87
+read 870
+write 880 88
+read 880
+write 890 89
+read 890
+write 900 90
+read 900
+write 910 91
+read 910
+write 920 92
+read 920
+write 930 93
+read 930
+write 940 94
+read 940
+write 950 95
+read 950
+write 960 96
+read 960
+write 970 97
+read 970
+write 980 98
+read 980
+write 990 99
+read 990
+write 999 100
+read 999
+
 
 
 
